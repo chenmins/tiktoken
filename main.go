@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"github.com/pkoukk/tiktoken-go"
 	tiktokenloader "github.com/pkoukk/tiktoken-go-loader"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 )
 
 // OpenAIResponse 定义接收数据的结构
@@ -88,18 +90,25 @@ func streamTokensHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 读取请求体中的数据
-	var dataStream []string
-	if err := json.NewDecoder(r.Body).Decode(&dataStream); err != nil {
+	// 读取整个请求体
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	defer r.Body.Close()
 
-	// 创建一个通道并模拟流式数据
+	// 按行拆分请求体
+	lines := strings.Split(string(body), "\n")
+
+	// 创建一个通道并处理每行数据
 	streamChannel := make(chan string)
 	go func() {
-		for _, data := range dataStream {
-			streamChannel <- data
+		for _, line := range lines {
+			if strings.HasPrefix(line, "data: ") {
+				jsonData := strings.TrimPrefix(line, "data: ")
+				streamChannel <- jsonData
+			}
 		}
 		close(streamChannel)
 	}()
