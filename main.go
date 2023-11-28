@@ -14,12 +14,14 @@ import (
 // OpenAIRequest 定义接收请求体的结构
 type OpenAIRequest struct {
 	Request struct {
-		Body string `json:"body"` // Body 现在是一个字符串
+		Body string `json:"body"` // Body 是一个 JSON 编码的字符串
 	} `json:"request"`
 	Response struct {
-		Body string `json:"body"`
+		Headers map[string]string `json:"headers"`
+		Body    string            `json:"body"`
 	} `json:"response"`
 }
+
 type Message struct {
 	Role     string      `json:"role"`
 	Content  string      `json:"content"`
@@ -74,43 +76,51 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解码 request.body
-	var requestBody struct {
-		Messages []Message `json:"messages"`
-	}
-	err = json.Unmarshal([]byte(req.Request.Body), &requestBody)
-	if err != nil {
-		http.Error(w, "Failed to decode body: "+err.Error(), http.StatusBadRequest)
-		return
+	// 检查 Content-Type 是否为 text/event-stream
+	contentType, ok := req.Response.Headers["content-type"]
+	if ok && strings.Contains(contentType, "text/event-stream") {
+		// 解码 request.body
+		var requestBody struct {
+			Messages []Message `json:"messages"`
+		}
+		err = json.Unmarshal([]byte(req.Request.Body), &requestBody)
+		if err != nil {
+			http.Error(w, "Failed to decode body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// 拼接 messages 中的 role 和 content 并计算 tokens
+		var combinedPrompt string
+		for _, msg := range requestBody.Messages {
+			combinedPrompt += msg.Role + ": " + msg.Content + " " // 根据需要调整拼接格式
+		}
+		promptTokens, err := calculateTokens(combinedPrompt)
+		if err != nil {
+			http.Error(w, "Failed to calculate prompt tokens: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		model, completionTokens, combinedChoice, err := calculateCompletionTokens(req.Response.Body)
+		if err != nil {
+			http.Error(w, "Failed to calculate completion tokens: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := TokenResponse{
+			Model:            model,
+			Object:           "chat.completion",
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      promptTokens + completionTokens,
+			Choices:          []Choice{combinedChoice},
+		}
+
+		json.NewEncoder(w).Encode(resp)
+	} else {
+		// 如果不是 text/event-stream，则直接返回 response.body
+		w.Write([]byte(req.Response.Body))
 	}
 
-	// 拼接 messages 中的 role 和 content 并计算 tokens
-	var combinedPrompt string
-	for _, msg := range requestBody.Messages {
-		combinedPrompt += msg.Role + ": " + msg.Content + " " // 根据需要调整拼接格式
-	}
-	promptTokens, err := calculateTokens(combinedPrompt)
-	if err != nil {
-		http.Error(w, "Failed to calculate prompt tokens: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	model, completionTokens, combinedChoice, err := calculateCompletionTokens(req.Response.Body)
-	if err != nil {
-		http.Error(w, "Failed to calculate completion tokens: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	resp := TokenResponse{
-		Model:            model,
-		Object:           "chat.completion",
-		PromptTokens:     promptTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      promptTokens + completionTokens,
-		Choices:          []Choice{combinedChoice},
-	}
-
-	json.NewEncoder(w).Encode(resp)
 }
 
 func calculateTokens(text string) (int, error) {
