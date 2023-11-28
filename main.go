@@ -35,14 +35,17 @@ type Choice struct {
 	FinishReason string      `json:"finish_reason"`
 	History      interface{} `json:"history"`
 }
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
 
 type TokenResponse struct {
-	Model            string   `json:"model"`
-	Object           string   `json:"object"`
-	PromptTokens     int      `json:"prompt_tokens"`
-	CompletionTokens int      `json:"completion_tokens"`
-	TotalTokens      int      `json:"total_tokens"`
-	Choices          []Choice `json:"choices"`
+	Model   string   `json:"model"`
+	Object  string   `json:"object"`
+	Choices []Choice `json:"choices"`
+	Usage   Usage    `json:"usage"`
 }
 
 func main() {
@@ -107,12 +110,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		resp := TokenResponse{
-			Model:            model,
-			Object:           "chat.completion",
-			PromptTokens:     promptTokens,
-			CompletionTokens: completionTokens,
-			TotalTokens:      promptTokens + completionTokens,
-			Choices:          []Choice{combinedChoice},
+			Model:  model,
+			Object: "chat.completion",
+			Usage: Usage{
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+				TotalTokens:      promptTokens + completionTokens,
+			},
+			Choices: []Choice{combinedChoice},
 		}
 
 		json.NewEncoder(w).Encode(resp)
