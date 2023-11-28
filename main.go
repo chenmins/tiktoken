@@ -2,95 +2,64 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"github.com/pkoukk/tiktoken-go"
-	tiktokenloader "github.com/pkoukk/tiktoken-go-loader"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/pkoukk/tiktoken-go"
+	tiktokenloader "github.com/pkoukk/tiktoken-go-loader"
 )
 
-// OpenAIResponse 定义接收数据的结构
-type OpenAIResponse struct {
-	Model   string `json:"model"`
-	Object  string `json:"object"`
-	Choices []struct {
-		Index int `json:"index"`
-		Delta struct {
-			Content      string `json:"content"`
-			FinishReason string `json:"finish_reason"`
-			Role         string `json:"role"`
-		} `json:"delta"`
-	} `json:"choices"`
+// OpenAIRequest 定义接收请求体的结构
+type OpenAIRequest struct {
+	Request struct {
+		Body string `json:"body"` // Body 现在是一个字符串
+	} `json:"request"`
+	Response struct {
+		Body string `json:"body"`
+	} `json:"response"`
+}
+type Message struct {
+	Role     string      `json:"role"`
+	Content  string      `json:"content"`
+	Metadata interface{} `json:"metadata"`
+	Tools    interface{} `json:"tools"`
 }
 
-// Statistics 定义统计数据的结构
-type Statistics struct {
-	ModelName     string
-	TotalChars    int
-	FinishReasons map[string]int
+type Choice struct {
+	Index        int         `json:"index"`
+	Message      Message     `json:"message"`
+	FinishReason string      `json:"finish_reason"`
+	History      interface{} `json:"history"`
 }
 
-// 流式处理并统计数据的函数
-func streamAndCollectStats(dataStream chan string) Statistics {
-	stats := Statistics{
-		FinishReasons: make(map[string]int),
-	}
-
-	// 初始化 tokenizer（根据实际情况调整）
-	tiktoken.SetBpeLoader(tiktokenloader.NewOfflineLoader())
-	encoding := "gpt-4"
-
-	for data := range dataStream {
-		var response OpenAIResponse
-		err := json.Unmarshal([]byte(data), &response)
-		if err != nil {
-			fmt.Println("Error parsing JSON:", err)
-			continue
-		}
-
-		if stats.ModelName == "" {
-			stats.ModelName = response.Model
-		}
-		for _, choice := range response.Choices {
-			// 用 tokenizer 编码文本
-			tkm, err := tiktoken.EncodingForModel(encoding)
-			if err != nil {
-				fmt.Println("Error getting encoding:", err)
-				continue
-			}
-			tokens := tkm.Encode(choice.Delta.Content, nil, nil)
-			if err != nil {
-				fmt.Println("Error encoding text:", err)
-				continue
-			}
-			stats.TotalChars += len(tokens)
-			if reason := choice.Delta.FinishReason; reason != "" {
-				stats.FinishReasons[reason]++
-			}
-		}
-	}
-
-	return stats
+type TokenResponse struct {
+	Model            string   `json:"model"`
+	Object           string   `json:"object"`
+	PromptTokens     int      `json:"prompt_tokens"`
+	CompletionTokens int      `json:"completion_tokens"`
+	TotalTokens      int      `json:"total_tokens"`
+	Choices          []Choice `json:"choices"`
 }
 
 func main() {
-	// 设置 HTTP 路由处理函数
-	http.HandleFunc("/encode", encodeHandler)
-	http.HandleFunc("/streamTokens", streamTokensHandler)
-	// 启动 HTTP 服务器
-	log.Println("Server starting on port 8080...")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	// 初始化 tokenizer
+	tiktoken.SetBpeLoader(tiktokenloader.NewOfflineLoader())
+
+	http.HandleFunc("/", handler)
+	log.Println("Server starting on port 8888...")
+	log.Fatal(http.ListenAndServe(":8888", nil))
 }
-func streamTokensHandler(w http.ResponseWriter, r *http.Request) {
-	// 确保是 POST 请求
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Only POST method is allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 读取整个请求体
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -98,62 +67,124 @@ func streamTokensHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// 按行拆分请求体
-	lines := strings.Split(string(body), "\n")
-
-	// 创建一个通道并处理每行数据
-	streamChannel := make(chan string)
-	go func() {
-		for _, line := range lines {
-			if strings.HasPrefix(line, "data: ") {
-				jsonData := strings.TrimPrefix(line, "data: ")
-				streamChannel <- jsonData
-			}
-		}
-		close(streamChannel)
-	}()
-
-	// 统计数据
-	stats := streamAndCollectStats(streamChannel)
-	// 返回统计结果
-	json.NewEncoder(w).Encode(stats)
-}
-
-func encodeHandler(w http.ResponseWriter, r *http.Request) {
-	// 设置响应类型为 JSON
-	w.Header().Set("Content-Type", "application/json")
-
-	// 读取请求体中的文本
-	var data struct {
-		Text string `json:"text"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+	var req OpenAIRequest
+	err = json.Unmarshal(body, &req)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// 原有的代码逻辑
-	tiktoken.SetBpeLoader(tiktokenloader.NewOfflineLoader())
-	encoding := "gpt-4"
-
-	tkm, err := tiktoken.EncodingForModel(encoding)
+	// 解码 request.body
+	var requestBody struct {
+		Messages []Message `json:"messages"`
+	}
+	err = json.Unmarshal([]byte(req.Request.Body), &requestBody)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("getEncoding: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Failed to decode body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// encode
-	token := tkm.Encode(data.Text, nil, nil)
-
-	// 创建响应
-	response := struct {
-		Tokens    []int `json:"tokens"`
-		NumTokens int   `json:"num_tokens"`
-	}{
-		Tokens:    token,
-		NumTokens: len(token),
+	// 拼接 messages 中的 role 和 content 并计算 tokens
+	var combinedPrompt string
+	for _, msg := range requestBody.Messages {
+		combinedPrompt += msg.Role + ": " + msg.Content + " " // 根据需要调整拼接格式
+	}
+	promptTokens, err := calculateTokens(combinedPrompt)
+	if err != nil {
+		http.Error(w, "Failed to calculate prompt tokens: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// 发送 JSON 响应
-	json.NewEncoder(w).Encode(response)
+	model, completionTokens, combinedChoice, err := calculateCompletionTokens(req.Response.Body)
+	if err != nil {
+		http.Error(w, "Failed to calculate completion tokens: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	resp := TokenResponse{
+		Model:            model,
+		Object:           "chat.completion",
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      promptTokens + completionTokens,
+		Choices:          []Choice{combinedChoice},
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+func calculateTokens(text string) (int, error) {
+	encoding := "gpt-3.5-turbo"
+	tkm, err := tiktoken.EncodingForModel(encoding)
+	if err != nil {
+		return 0, err
+	}
+
+	tokens := tkm.Encode(text, nil, nil)
+	tokenCount := len(tokens)
+
+	// 添加日志记录
+	log.Printf("Processed Text: %s\n", text)
+	log.Printf("Token Count: %d\n", tokenCount)
+
+	return tokenCount, nil
+}
+
+func calculateCompletionTokens(responseBody string) (string, int, Choice, error) {
+	lines := strings.Split(responseBody, "\n")
+	var combinedContent, model, lastFinishReason, lastRole string
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "data: ") {
+			if strings.TrimSpace(line) == "data: [DONE]" {
+				continue
+			}
+
+			var response struct {
+				Model   string `json:"model"`
+				Choices []struct {
+					Index int `json:"index"`
+					Delta struct {
+						Content string `json:"content"`
+						Role    string `json:"role"`
+					} `json:"delta"`
+					FinishReason string `json:"finish_reason"`
+				} `json:"choices"`
+			}
+
+			jsonData := strings.TrimPrefix(line, "data: ")
+			err := json.Unmarshal([]byte(jsonData), &response)
+			if err != nil {
+				log.Printf("Error parsing JSON data: %v", err)
+				continue
+			}
+
+			if model == "" {
+				model = response.Model
+			}
+
+			for _, choice := range response.Choices {
+				combinedContent += choice.Delta.Content
+				// 只在 finish_reason 有非空值时更新
+				if choice.FinishReason != "" {
+					lastFinishReason = choice.FinishReason
+				}
+				if choice.Delta.Role != "" {
+					lastRole = choice.Delta.Role
+				}
+			}
+		}
+	}
+
+	tokenCount, err := calculateTokens(combinedContent)
+	combinedChoice := Choice{
+		Index: 0,
+		Message: Message{
+			Role:    lastRole,
+			Content: combinedContent,
+		},
+		FinishReason: lastFinishReason,
+	}
+
+	return model, tokenCount, combinedChoice, err
 }
