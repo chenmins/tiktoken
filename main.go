@@ -14,11 +14,20 @@ import (
 // OpenAIRequest 定义接收请求体的结构
 type OpenAIRequest struct {
 	Request struct {
-		Body string `json:"body"` // Body 是一个 JSON 编码的字符串
+		Headers     map[string]string `json:"headers"`
+		Body        string            `json:"body"` // Body 是一个 JSON 编码的字符串
+		Size        int               `json:"size"`
+		Method      string            `json:"method"`
+		URI         string            `json:"uri"`
+		URL         string            `json:"url"`
+		Querystring map[string]string `json:"querystring"`
+		ID          string            `json:"id"`
 	} `json:"request"`
 	Response struct {
 		Headers map[string]string `json:"headers"`
 		Body    string            `json:"body"`
+		Status  int               `json:"status"`
+		Size    int               `json:"size"`
 	} `json:"response"`
 }
 
@@ -79,6 +88,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 新逻辑: 包含整个请求的内容
+	respContent := req
+
 	// 检查 Content-Type 是否为 text/event-stream
 	contentType, ok := req.Response.Headers["content-type"]
 	if ok && strings.Contains(contentType, "text/event-stream") {
@@ -120,11 +132,37 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			Choices: []Choice{combinedChoice},
 		}
 
-		json.NewEncoder(w).Encode(resp)
+		// 将 resp 转换为 JSON 字符串
+		respJSON, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// 将 JSON 字符串赋值给 respContent.Response.Body
+		respContent.Response.Body = string(respJSON)
+
+		//json.NewEncoder(w).Encode(resp)
 	} else {
 		// 如果不是 text/event-stream，则直接返回 response.body
-		w.Write([]byte(req.Response.Body))
+		//w.Write([]byte(req.Response.Body))
+		//respContent.Response.Body = req.Response.Body
 	}
+
+	//log.Printf("return :\n %s", respContent)
+	//json.NewEncoder(w).Encode(respContent)
+	// 将处理后的响应结果（respContent）格式化为 JSON
+	respJSON, err := json.MarshalIndent(respContent, "", "  ")
+	if err != nil {
+		http.Error(w, "Failed to encode response: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 使用 log.Printf 输出格式化后的 JSON
+	log.Printf("Return:\n%s", string(respJSON))
+
+	// 响应 HTTP 请求，状态码为 200，但内容为空
+	w.WriteHeader(http.StatusOK)
 
 }
 
