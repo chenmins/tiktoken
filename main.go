@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/pkoukk/tiktoken-go"
@@ -184,6 +186,44 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// 响应 HTTP 请求，状态码为 200，但内容为空
 	w.WriteHeader(http.StatusOK)
 
+	if post(err, respJSON) {
+		return
+	}
+
+}
+
+func post(err error, respJSON []byte) bool {
+	// 获取环境变量中的 URL 或使用默认值
+	postURL := os.Getenv("TARGET_URL")
+	if postURL == "" {
+		postURL = "http://127.0.0.1:9000"
+	}
+
+	// 创建 POST 请求
+	req1, err := http.NewRequest("POST", postURL, bytes.NewBuffer(respJSON))
+	if err != nil {
+		log.Printf("Error creating POST request: %v", err)
+		return true
+	}
+
+	// 设置请求头部为 'Content-Type: application/json'
+	req1.Header.Set("Content-Type", "application/json")
+
+	// 执行 POST 请求
+	client := &http.Client{}
+	resp, err := client.Do(req1)
+	if err != nil {
+		log.Printf("Error sending POST request: %v", err)
+		return true
+	}
+
+	// 关闭响应体
+	defer resp.Body.Close()
+
+	// 读取响应内容（如果需要）
+	responseBody, _ := ioutil.ReadAll(resp.Body)
+	log.Printf("Response from POST request: %s", string(responseBody))
+	return false
 }
 
 func calculateTokens(text string) (int, error) {
