@@ -14,14 +14,14 @@ import (
 // OpenAIRequest 定义接收请求体的结构
 type OpenAIRequest struct {
 	Request struct {
-		Headers     map[string]string `json:"headers"`
-		Body        string            `json:"body"` // Body 是一个 JSON 编码的字符串
-		Size        int               `json:"size"`
-		Method      string            `json:"method"`
-		URI         string            `json:"uri"`
-		URL         string            `json:"url"`
-		Querystring map[string]string `json:"querystring"`
-		ID          string            `json:"id"`
+		Headers     map[string]string   `json:"headers"`
+		Body        string              `json:"body"`
+		Size        int                 `json:"size"`
+		Method      string              `json:"method"`
+		URI         string              `json:"uri"`
+		URL         string              `json:"url"`
+		Querystring map[string][]string `json:"querystring"`
+		ID          string              `json:"id"`
 	} `json:"request"`
 	Response struct {
 		Headers map[string]string `json:"headers"`
