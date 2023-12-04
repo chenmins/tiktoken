@@ -67,6 +67,26 @@ func main() {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
+
+	// 打印请求方法和URL
+	log.Printf("Request Method: %s, URL: %s", r.Method, r.URL)
+
+	// 打印请求头部
+	log.Println("Headers:")
+	for name, headers := range r.Header {
+		for _, h := range headers {
+			log.Printf("\t%s: %s", name, h)
+		}
+	}
+
+	// 打印查询字符串参数
+	log.Println("Query Parameters:")
+	for name, params := range r.URL.Query() {
+		for _, p := range params {
+			log.Printf("\t%s: %s", name, p)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method != http.MethodPost {
