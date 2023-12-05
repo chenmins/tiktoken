@@ -8,11 +8,12 @@ import (
 	"net/http"
 	"os"
 	"strings"
-
+        "fmt"
 	"github.com/pkoukk/tiktoken-go"
 	tiktokenloader "github.com/pkoukk/tiktoken-go-loader"
 )
 
+var version string
 // OpenAIRequest 定义接收请求体的结构
 type OpenAIRequest struct {
 	Request struct {
@@ -59,7 +60,9 @@ type TokenResponse struct {
 	Usage   Usage    `json:"usage"`
 }
 
+
 func main() {
+    fmt.Println("App Version:", version)
 	// 初始化 tokenizer
 	tiktoken.SetBpeLoader(tiktokenloader.NewOfflineLoader())
 
