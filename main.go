@@ -14,6 +14,8 @@ import (
 )
 
 var version string
+var commit string
+
 // OpenAIRequest 定义接收请求体的结构
 type OpenAIRequest struct {
 	Request struct {
@@ -62,7 +64,8 @@ type TokenResponse struct {
 
 
 func main() {
-    fmt.Println("App Version:", version)
+        fmt.Println("App Version:", version)
+	fmt.Println("App commit:", commit)
 	// 初始化 tokenizer
 	tiktoken.SetBpeLoader(tiktokenloader.NewOfflineLoader())
 
